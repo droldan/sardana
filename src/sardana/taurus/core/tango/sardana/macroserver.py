@@ -985,22 +985,21 @@ class BaseMacroServer(MacroServerDevice):
         See Also: fillMacroNodeAddidtionalInfos
         """
 
-        macroNode = MacroNode(name=macro_name)
         macroInfoObj = self.getMacroInfoObj(macro_name)
         if macroInfoObj is None:
             return
+        # fill macro parameters
+        paramsInfo = macroInfoObj.parameters
+        macroNode = MacroNode(name=macro_name, params_def=paramsInfo)
+        hasParams = bool(len(paramsInfo))
+        macroNode.setHasParams(hasParams)
+        # fill allowed hook places
         allowedHookPlaces = []
         hints = macroInfoObj.hints
         if hints is not None:
             for hook in hints.get('allowsHooks', []):
                 allowedHookPlaces.append(str(hook))
         macroNode.setAllowedHookPlaces(allowedHookPlaces)
-        hasParams = bool(len(macroInfoObj.parameters))
-        macroNode.setHasParams(hasParams)
-        paramsInfo = macroInfoObj.parameters
-        for paramInfo in paramsInfo:
-            param = ParamFactory(paramInfo)
-            macroNode.addParam(param)
         return macroNode
 
     def validateMacroName(self, macroName):

@@ -125,7 +125,38 @@ class MacroNodeTestCase(unittest.TestCase):
         # Validate the XML tree
         self._validateXML(macronode_xml, expected_xml)
 
-
+#### Testing a list of elements (floats) ####
+@insertTest(helper_name='verifyEncoding',
+            param_def=None,
+            macro_params=["1", "3"],
+            expected_params_list=["1", "3"]
+            )
+#### Testing a list of elements (floats) ####
+@insertTest(helper_name='verifyEncoding',
+            param_def=None,
+            macro_params=[["1", "3"]],
+            expected_params_list=[["1", "3"]]
+            )
+@insertTest(helper_name='verifyEncoding',
+            param_def=None,
+            macro_params=[["1", "3"], "5"],
+            expected_params_list=[["1", "3"], "5"]
+            )
+@insertTest(helper_name='verifyEncoding',
+            param_def=None,
+            macro_params=[["1", "3"], "5", "7"],
+            expected_params_list=[["1", "3"], "5", "7"]
+            )
+@insertTest(helper_name='verifyEncoding',
+            param_def=None,
+            macro_params=[["1", "3"], ["5", "7"]],
+            expected_params_list=[["1", "3"], ["5", "7"]]
+            )
+@insertTest(helper_name='verifyEncoding',
+            param_def=None,
+            macro_params=[[["1", "3"], ["5", "7"]]],
+            expected_params_list=[[["1", "3"], ["5", "7"]]]
+            )
 #### Testing a list of elements (floats) ####
 @insertTest(helper_name='verifyEncoding',
             param_def=pt3d_param_def,

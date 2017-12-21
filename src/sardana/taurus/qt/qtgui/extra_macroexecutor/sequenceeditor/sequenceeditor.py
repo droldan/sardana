@@ -28,9 +28,6 @@ sequenceeditor.py:
 """
 import os
 import sys
-
-from lxml import etree
-
 import PyTango
 
 from taurus import Device
@@ -414,7 +411,7 @@ class TaurusSequencerWidget(TaurusWidget):
         self.doorStateLed = TaurusLed(self)
         actionsLayout.addWidget(self.doorStateLed)
 
-        #@todo this feature will be replaced by checkboxes in the
+        # @todo this feature will be replaced by checkboxes in the
         # sequence tree view indicating clearing of the plot after execution
         self.fullSequencePlotCheckBox = Qt.QCheckBox(
             "Full sequence plot", self)
@@ -504,8 +501,6 @@ class TaurusSequencerWidget(TaurusWidget):
 
     def contextMenuEvent(self, event):
         menu = Qt.QMenu()
-        action = menu.addAction(getThemeIcon(
-            "view-refresh"), "Check door state", self.checkDoorState)
         menu.exec_(event.globalPos())
 
     def checkDoorState(self):
@@ -589,7 +584,7 @@ class TaurusSequencerWidget(TaurusWidget):
     def loadFile(self, fileName):
         if fileName == "":
             return
-        #@todo: reset macroComboBox to index 0
+        # @todo: reset macroComboBox to index 0
         try:
             file = open(fileName, 'r')
             string = file.read()
@@ -624,7 +619,7 @@ class TaurusSequencerWidget(TaurusWidget):
             self.saveSequenceAction.setEnabled(False)
             raise
         finally:
-            if not file is None:
+            if file is not None:
                 file.close()
             self.setSequencesPath(str.join("/", fileName.rsplit("/")[:-1]))
 
@@ -648,7 +643,6 @@ class TaurusSequencerWidget(TaurusWidget):
             sequencesPath,
             "*"))
         self.loadFile(fileName)
-
 
     def onSaveSequence(self):
         sequencesPath = self.sequencesPath()
@@ -675,7 +669,7 @@ class TaurusSequencerWidget(TaurusWidget):
                 fileName)
             print e
         finally:
-            if not file is None:
+            if file is not None:
                 file.close()
 
     def onPlaySequence(self):
@@ -746,12 +740,12 @@ class TaurusSequencerWidget(TaurusWidget):
         if id is None:
             return
         id = int(id)
-        if not id in self.macroIds():
+        if id not in self.macroIds():
             return
         macroName = macro.name
         shortMessage = ""
         if state == "start":
-            #@todo: Check this signal because it doesn't work,
+            # @todo: Check this signal because it doesn't work,
             # emitExecutionStarted is not set!!!
             if self.emitExecutionStarted():
                 self.emit(Qt.SIGNAL("macroStarted"), "DoorOutput")

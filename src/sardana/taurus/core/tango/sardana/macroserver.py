@@ -1228,7 +1228,7 @@ class BaseMacroServer(MacroServerDevice):
                     for idx in range(params_per_repeat):
                         repeat = []
                         for i in range(len(paramInfo)):
-                            if len(paramNodes)>0:
+                            if len(paramNodes) > 0:
                                 repeat.append(paramNodes.pop(0).value())
                             else:
                                 value = paramInfo[i]['default_value']

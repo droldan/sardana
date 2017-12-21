@@ -933,7 +933,7 @@ class TaurusSequencer(MacroExecutionWindow):
         MacroExecutionWindow.__init__(self)
 
     def initComponents(self):
-        #@todo: take care about storing model
+        # @todo: take care about storing model
         self.setModelInConfig(True)
         self.taurusSequencerWidget = TaurusSequencerWidget(self)
         self.taurusSequencerWidget.setUseParentModel(True)
@@ -1023,6 +1023,7 @@ def main():
     sequencer = createSequencer(args, options)
     sequencer.show()
     sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()

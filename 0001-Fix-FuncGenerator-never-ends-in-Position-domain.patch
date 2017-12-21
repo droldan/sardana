@@ -1,0 +1,72 @@
+From 9f43b4b6767480914c2c4237905ba80002155a56 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Daniel=20Rold=C3=A1n?= <droldan@cells.es>
+Date: Thu, 31 Aug 2017 09:04:46 +0200
+Subject: [PATCH] Fix FuncGenerator never ends in Position domain
+
+---
+ src/sardana/pool/poolsynchronization.py | 20 +++++++++++++++-----
+ src/sardana/util/funcgenerator.py       | 14 +++++++++++---
+ 2 files changed, 26 insertions(+), 8 deletions(-)
+
+diff --git a/src/sardana/pool/poolsynchronization.py b/src/sardana/pool/poolsynchronization.py
+index 4e711079..feca7d7c 100644
+--- a/src/sardana/pool/poolsynchronization.py
++++ b/src/sardana/pool/poolsynchronization.py
+@@ -129,14 +129,24 @@ class PoolSynchronization(PoolAction):
+                 remove_mg_listener = partial(self._synch_soft.remove_listener,
+                                              self.main_element)
+                 self.add_finish_hook(remove_mg_listener, False)
+-            # subscribing to the position change events to generate events
++            # subscribing to the position and state change events to generate events
+             # in position domain
+             if moveable is not None:
+-                position = moveable.get_position_attribute()
+-                position.add_listener(self._synch_soft)
+-                remove_pos_listener = partial(position.remove_listener,
++                # Delete FunctionGenerator Listener only for position events
++                # issue #583
++                #position = moveable.get_position_attribute()
++                #position.add_listener(self._synch_soft)
++                #remove_pos_listener = partial(position.remove_listener,
++                                              #self._synch_soft)
++                #self.add_finish_hook(remove_pos_listener, False)
++
++                # Add FunctionGenerator Listener to moveable in order to also 
++                # receive the state events, this is necessary to make known 
++                # FunctionGenerator the state of the motor.
++                moveable.add_listener(self._synch_soft)                 
++                remove_mov_listener = partial(moveable.remove_listener,
+                                               self._synch_soft)
+-                self.add_finish_hook(remove_pos_listener, False)
++                self.add_finish_hook(remove_mov_listener, False)
+ 
+             # PreStartAll on all controllers
+             for pool_ctrl in pool_ctrls:
+diff --git a/src/sardana/util/funcgenerator.py b/src/sardana/util/funcgenerator.py
+index 88135595..c382afed 100644
+--- a/src/sardana/util/funcgenerator.py
++++ b/src/sardana/util/funcgenerator.py
+@@ -134,9 +134,17 @@ class FunctionGenerator(EventGenerator):
+     direction = property(get_direction, set_direction)
+ 
+     def event_received(self, *args, **kwargs):
+-        _, _, v = args
+-        self._position = v.value
+-        self._position_event.set()
++        s, t, v = args
++        if t.name.lower() == 'position':
++            self._position = v.value
++            self._position_event.set()
++
++        # In case of SynchDomain.Position check if the motor has finished the
++        #  movement
++        elif t.name.lower() == 'state':
++            if self.initial_domain_in_use == SynchDomain.Position:
++                if v != State.Moving:
++                    self.stop()
+ 
+     def start(self):
+         self._start_time = time.time()
+-- 
+2.12.0
+

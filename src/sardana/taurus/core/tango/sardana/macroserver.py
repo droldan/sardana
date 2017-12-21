@@ -35,6 +35,7 @@ import time
 import uuid
 import weakref
 import threading
+import math
 import os.path as osp
 
 from lxml import etree
@@ -1183,7 +1184,8 @@ class BaseMacroServer(MacroServerDevice):
             # Old param repeat interface
             # reconstruct the ParamNodes to use the the new interface.
 
-            msg_error = 'You should use new param repeat interface.'
+            msg_error = 'Error in syntax, you should use new param ' \
+                        'repeat interface.'
             flg = False
             for idx, paramInfo in enumerate(paramInfosList):
                 paramType = paramInfo.get('type')
@@ -1201,9 +1203,9 @@ class BaseMacroServer(MacroServerDevice):
                 # Take the paramInfo if the RepeatParam
                 paramInfo = paramInfosList[-1]['type']
 
-                # check if mach the params and the paramrepeats
-                if len(paramNodes)% len(paramInfo) > 0:
-                    raise ValueError(msg_error)
+                # # check if mach the params and the paramrepeats
+                # if len(paramNodes)% len(paramInfo) > 0:
+                #     raise ValueError(msg_error)
 
                 # check if there are param repeat inside the param repeat
                 for paramType in paramInfo:
@@ -1211,13 +1213,20 @@ class BaseMacroServer(MacroServerDevice):
                         raise ValueError(msg_error)
 
                 newParamsRepeats = []
-                params_per_repeat = len(paramNodes)/len(paramInfo)
+                params_per_repeat = float(len(paramNodes))/len(paramInfo)
+                params_per_repeat = int(math.ceil(params_per_repeat))
                 # Regenerate from old Interface to new one Interface
                 if params_per_repeat > 0:
                     for idx in range(params_per_repeat):
                         repeat = []
                         for i in range(len(paramInfo)):
-                            repeat.append(paramNodes.pop(0).value())
+                            if len(paramNodes)>0:
+                                repeat.append(paramNodes.pop(0).value())
+                            else:
+                                value = paramInfo[i]['default_value']
+                                if value is None:
+                                    raise ValueError(msg_error)
+                                repeat.append(value)
                         newParamsRepeats.append(repeat)
 
                     # Create a new RepeatParamNode with the new params config

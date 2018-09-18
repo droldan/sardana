@@ -612,14 +612,16 @@ class Controller(PoolElement):
     def getElementByAxis(self, axis):
         pool = self.getPoolObj()
         for _, elem in pool.getElementsOfType(self.getMainType()).items():
-            if elem.controller != self.getName() or elem.getAxis() != axis:
+            if (elem.controller != self.getFullName() or
+                    elem.getAxis() != axis):
                 continue
             return elem
 
     def getElementByName(self, name):
         pool = self.getPoolObj()
-        for name, elem in pool.getElementsOfType(self.getMainType()).items():
-            if elem.controller != self.getName() or elem.getName() != name:
+        for _, elem in pool.getElementsOfType(self.getMainType()).items():
+            if (elem.controller != self.getFullName() or
+                    elem.getName() != name):
                 continue
             return elem
 
@@ -639,7 +641,7 @@ class Controller(PoolElement):
         return sorted(axes)
 
     def getUsedAxis(self):
-        msg = ("getUsedAxis is deprecated since version Jul18. ",
+        msg = ("getUsedAxis is deprecated since version 2.5.0. ",
                "Use getUsedAxes instead.")
         self.warning(msg)
         self.getUsedAxes()

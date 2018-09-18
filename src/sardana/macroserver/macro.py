@@ -32,7 +32,7 @@ from __future__ import print_function
 __all__ = ["OverloadPrint", "PauseEvent", "Hookable", "ExecMacroHook",
            "MacroFinder", "Macro", "macro", "iMacro", "imacro",
            "MacroFunc", "Type", "ParamRepeat", "Table", "List", "ViewOption",
-           "LibraryError"]
+           "LibraryError", "Optional"]
 
 __docformat__ = 'restructuredtext'
 
@@ -55,7 +55,8 @@ from taurus.console.list import List
 from sardana.sardanadefs import State
 from sardana.util.wrap import wraps
 
-from sardana.macroserver.msparameter import Type, ParamType, ParamRepeat
+from sardana.macroserver.msparameter import Type, ParamType, ParamRepeat, \
+    Optional
 from sardana.macroserver.msexception import StopException, AbortException, \
     MacroWrongParameterType, UnknownEnv, UnknownMacro, LibraryError
 from sardana.macroserver.msoptions import ViewOption
@@ -187,16 +188,17 @@ class Hookable(Logger):
         return self._getHookHintsDict().keys()
 
     def getHooks(self, hint=None):
-        '''This will return a list of hooks that have the given hint. Two reserved
+        """This will return a list of hooks that have the given hint. Two reserved
         hints are always valid:
-          - "_ALL_": which contains all the hooks
-          - "_NOHINTS_": which contains the hooks that don't provide any hint
+
+        - "_ALL_": which contains all the hooks
+        - "_NOHINTS_": which contains the hooks that don't provide any hint
 
         :param hint: (str) a hint. If None is passed, it returns a list of
                      (hook,hints) tuples
 
         :return: (list) an ordered list of hooks that have the given hint
-        '''
+        """
         if hint is None:
             return self._getHooks()
         else:

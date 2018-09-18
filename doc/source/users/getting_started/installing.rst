@@ -5,14 +5,14 @@
 Installing
 ==========
 
-Installing with easy_install [1]_ (platform-independent)
+Installing with pip [1]_ (platform-independent)
 --------------------------------------------------------
 
-Sardana can be installed using easy_install. The following command will
+Sardana can be installed using pip. The following command will
 automatically download and install the latest release of Sardana (see
-easy_install --help for options)::
+pip --help for options)::
 
-       easy_install -U sardana
+       pip install sardana
 
 You can test the installation by running::
 
@@ -78,21 +78,25 @@ necessary to run Sardana on your windows machine
 =========================
 Working directly from Git
 =========================
+ 
+If you intend to do changes to Sardana itself, or want to try the latest
+developments, it is convenient to work directly from the git source in
+"develop" (aka "editable") mode, so that you do not need to re-install
+on each change.
 
-Sometimes it is convenient to work directly from the git source without
-installing. To do so, you can clone sardana from our main git repository::
+You can clone sardana from the main git repository::
 
     git clone https://github.com/sardana-org/sardana.git sardana
 
-And then you can directly execute sardana binaries (Pool, MacroServer, Sardana
-or spock from the command line)::
+Then, to work in editable mode, just do::
 
-    homer@pc001:~/workspace$ cd sardana
-    homer@pc001:~/workspace/sardana$ scripts/Sardana
+    pip install -e ./sardana
 
-.. tip:: If you plan to work normally from git without installing, you may want
-         to add the `sardana/scripts` directory to your `PATH` variable and
-         `sardana/src` to your `PYTHONPATH` variable.
+Note that you can also fork the git repository in github to get your own
+github-hosted clone of the sardana repository to which you will have full
+access. This will create a new git repository associated to your personal account in
+github, so that your changes can be easily shared and eventually merged
+into the official repository.
 
 
 .. _dependencies:
@@ -125,9 +129,9 @@ Sardana has dependencies on some python libraries:
 
 .. [1] This command requires super user previledges on linux systems. If your
        user has them you can usually prefix the command with *sudo*:
-       ``sudo easy_install -U sardana``. Alternatively, if you don't have
+       ``sudo pip -U sardana``. Alternatively, if you don't have
        administrator previledges, you can install locally in your user
-       directory with: ``easy_install --user sardana``
+       directory with: ``pip --user sardana``
        In this case the executables are located at <HOME_DIR>/.local/bin. Make
        sure the PATH is pointing there or you execute from there.
 

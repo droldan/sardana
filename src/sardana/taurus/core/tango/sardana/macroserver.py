@@ -180,7 +180,7 @@ class ExperimentConfiguration(object):
         env = door.getEnvironment()
 
         ret = dict(ScanDir=env.get('ScanDir'),
-                   DataCompressionRank=env.get('DataCompressionRank', 0),
+                   DataCompressionRank=env.get('DataCompressionRank', 1),
                    PreScanSnapshot=env.get('PreScanSnapshot', []))
         scan_file = env.get('ScanFile')
         if scan_file is None:
@@ -188,11 +188,13 @@ class ExperimentConfiguration(object):
         elif isinstance(scan_file, (str, unicode)):
             scan_file = [scan_file]
         ret['ScanFile'] = scan_file
-        mnt_grps = macro_server.getElementNamesOfType("MeasurementGroup")
+        mnt_grps = macro_server.getElementsOfType("MeasurementGroup")
+        mnt_grps_names = [mnt_grp.name for mnt_grp in mnt_grps.values()]
+        mnt_grps_full_names = mnt_grps.keys()
 
         active_mnt_grp = env.get('ActiveMntGrp')
         if active_mnt_grp is None and len(mnt_grps):
-            active_mnt_grp = mnt_grps[0]
+            active_mnt_grp = mnt_grps_names[0]
             door.putEnvironment('ActiveMntGrp', active_mnt_grp)
 
         ret['ActiveMntGrp'] = active_mnt_grp
@@ -202,11 +204,12 @@ class ExperimentConfiguration(object):
             return ret
 
         mnt_grp_grps = PyTango.Group("grp")
-        mnt_grp_grps.add(mnt_grps)
+        # use full names cause we may be using a different Tango database
+        mnt_grp_grps.add(mnt_grps_full_names)
 
         codec = CodecFactory().getCodec('json')
         replies = mnt_grp_grps.read_attribute("configuration")
-        for mnt_grp, reply in zip(mnt_grps, replies):
+        for mnt_grp, reply in zip(mnt_grps_names, replies):
             try:
                 mnt_grp_configs[mnt_grp] = \
                     codec.decode(('json', reply.get_data().value),
@@ -335,14 +338,14 @@ class BaseDoor(MacroServerDevice):
                 attr.subscribeEvent(self.logReceived, log_name)
             self._log_attr[log_name] = attr
 
-        input_attr = self.getAttribute("Input")
-        input_attr.addListener(self.inputReceived)
+        self.__input_attr = self.getAttribute("Input")
+        self.__input_attr.addListener(self.inputReceived)
 
-        record_data_attr = self.getAttribute('RecordData')
-        record_data_attr.addListener(self.recordDataReceived)
+        self.__record_data_attr = self.getAttribute('RecordData')
+        self.__record_data_attr.addListener(self.recordDataReceived)
 
-        macro_status_attr = self.getAttribute('MacroStatus')
-        macro_status_attr.addListener(self.macroStatusReceived)
+        self.__macro_status_attr = self.getAttribute('MacroStatus')
+        self.__macro_status_attr.addListener(self.macroStatusReceived)
 
         self._experiment_configuration = ExperimentConfiguration(self)
 
@@ -567,7 +570,14 @@ class BaseDoor(MacroServerDevice):
         return result
 
     def stateChanged(self, s, t, v):
-        self._old_door_state = self.getState()
+        # In contrary to the Taurus3 the Taurus4 raises exceptions when the
+        # device server is getting down and we try to retrieve the state.
+        # In this case provide the same behavior as Taurus3 - assign None to
+        # the old state
+        try:
+            self._old_door_state = self.getState()
+        except PyTango.DevFailed:
+            self._old_door_state = None
         try:
             self._old_sw_door_state = self.getSWState()
         except:
@@ -774,15 +784,17 @@ class BaseMacroServer(MacroServerDevice):
         self._elements = BaseSardanaElementContainer()
         self.call__init__(MacroServerDevice, name, **kw)
 
-        attr = self.getAttribute("Elements")
-        attr.setSerializationMode(TaurusSerializationMode.Serial)
-        attr.addListener(self.on_elements_changed)
-        attr.setSerializationMode(TaurusSerializationMode.Concurrent)
+        self.__elems_attr = self.getAttribute("Elements")
+        self.__elems_attr.setSerializationMode(TaurusSerializationMode.Serial)
+        self.__elems_attr.addListener(self.on_elements_changed)
+        self.__elems_attr.setSerializationMode(
+            TaurusSerializationMode.Concurrent)
 
-        attr = self.getAttribute('Environment')
-        attr.setSerializationMode(TaurusSerializationMode.Serial)
-        attr.addListener(self.on_environment_changed)
-        attr.setSerializationMode(TaurusSerializationMode.Concurrent)
+        self.__env_attr = self.getAttribute('Environment')
+        self.__env_attr.setSerializationMode(TaurusSerializationMode.Serial)
+        self.__env_attr.addListener(self.on_environment_changed)
+        self.__env_attr.setSerializationMode(
+            TaurusSerializationMode.Concurrent)
 
     NO_CLASS_TYPES = 'ControllerClass', 'ControllerLibrary', \
                      'MacroLibrary', 'Instrument', 'Meta', 'ParameterType'
@@ -864,9 +876,7 @@ class BaseMacroServer(MacroServerDevice):
         return MacroInfo(from_json=element_info._data)
 
     def _createDeviceObject(self, element_info):
-        # TODO: For Taurus 4 compatibility
-        name = "tango://%s" % element_info.full_name
-        return Factory().getDevice(name)
+        return Factory().getDevice(element_info.full_name)
 
     def on_elements_changed(self, evt_src, evt_type, evt_value):
         try:

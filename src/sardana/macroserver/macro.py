@@ -202,6 +202,32 @@ class Hookable(Logger):
         else:
             return self._getHookHintsDict().get(hint, [])
 
+    def appendHook(self, hook_info):
+        """Append a hook according to the hook information
+
+        :param hook_info: sequence of two elements, the first one is the hook
+            and its optional parameters/arguments, the second one is the list
+            of hints e.g. hook places
+        """
+        self._getHooks().append(hook_info)
+        hook = hook_info[0]
+        hints = hook_info[1]
+        allowed_hookhints = self.getAllowedHookHints()
+        if len(hints) == 0:
+            self._getHookHintsDict()['_ALL_'].append(hook)
+            self._hookHintsDict['_NOHINTS_'].append(hook)
+            return
+        for hint in hints:
+            if hint in allowed_hookhints:
+                self._getHookHintsDict()['_ALL_'].append(hook)
+                break
+        for hint in hints:
+            if hint in allowed_hookhints:
+                try:
+                    self._hookHintsDict[hint].append(hook)
+                except KeyError:
+                    self._hookHintsDict[hint] = [hook]
+
     @propertx
     def hooks():
         def get(self):
@@ -237,6 +263,9 @@ class Hookable(Logger):
                     self.info(
                         'Deprecation warning: hooks should be set with a list of hints. See Hookable API docs')
 
+            # delete _hookHintsDict to force its recreation on the next access
+            if hasattr(self, '_hookHintsDict'):
+                del self._hookHintsDict
             # create _hookHintsDict
             self._getHookHintsDict()['_ALL_'] = zip(*self._hooks)[0]
             nohints = self._hookHintsDict['_NOHINTS_']
@@ -254,7 +283,17 @@ class Hookable(Logger):
 
 class ExecMacroHook(object):
     """A speciallized callable hook for executing a sub macro inside another
-    macro as a hook"""
+    macro as a hook.
+
+    In order to attach macro with parameters pass all of them in form of
+    a list (repeat parameters are allowed) e.g.
+    - ExecMacroHook(self, "ct", 0.1)
+    - ExecMacroHook(self, ["ct", 0.1])
+    - ExecMacroHook(self, "mv", "mot01", 0, "mot02", 0)
+    - ExecMacroHook(self, "mv", [["mot01", 0], ["mot02", 0]])
+    - ExecMacroHook(self, ["mv", [["mot01", 0], ["mot02", 0]]])
+    The API basically follows the :meth:`Macro.execMacro`.
+    """
 
     def __init__(self, parent_macro, *pars, **kwargs):
         self._macro_obj_wr = weakref.ref(parent_macro)
@@ -308,12 +347,14 @@ def mAPI(fn):
             if self._shouldRaiseStopException():
                 if is_macro_th:
                     self.setProcessingStop(True)
+                self.executor._waitStopDone()
                 raise StopException("stopped before calling %s" % fn.__name__)
         ret = fn(*args, **kwargs)
         if not self.isProcessingStop():
             if self._shouldRaiseStopException():
                 if is_macro_th:
                     self.setProcessingStop(True)
+                self.executor._waitStopDone()
                 raise StopException("stopped after calling %s" % fn.__name__)
         return ret
     return new_fn
@@ -1209,7 +1250,7 @@ class Macro(Logger):
             return macro
 
         :param name: name of the macro to be prepared
-        :type name: str
+        :type name: :obj:`str`
         :param args: list of parameter objects
         :param kwargs: list of keyword parameters
 
@@ -1328,7 +1369,7 @@ class Macro(Logger):
     def outputBlock(self, line):
         """**Macro API**. Sends an line tagged as a block to the output
 
-        :param str line: line to be sent"""
+        :param :obj:`str` line: line to be sent"""
         if isinstance(line, (str, unicode)):
             o = line
         elif operator.isSequenceType(line):
@@ -1373,7 +1414,8 @@ class Macro(Logger):
         executed the stop method of the given object will be called.
 
         :param obj_list: list of objects to be controlled
-        :type obj_list: sequence"""
+        :type obj_list: :obj:`collections.Sequence`
+        """
         for o in obj_list:
             self.addObj(o)
 
@@ -1528,7 +1570,7 @@ class Macro(Logger):
 
         :param lib_name:
             library name
-        :type lib_name: str
+        :type lib_name: :obj:`str`
         :return:
             a macro library :class:`~sardana.macroserver.msmetamacro.MacroLibrary`
         :rtype: :class:`~sardana.macroserver.msmetamacro.MacroLibrary`"""
@@ -1720,15 +1762,15 @@ class Macro(Logger):
 
         :param key:
             environment variable name [default: None, meaning all environment]
-        :type key: str
+        :type key: :obj:`str`
         :param door_name:
             local context for a given door [default: None, meaning no door
             context is used]
-        :type door_name: str
+        :type door_name: :obj:`str`
         :param macro_name:
             local context for a given macro [default: None, meaning no macro
             context is used]
-        :type macro_name: str
+        :type macro_name: :obj:`str`
 
         :return: a :obj:`dict` containing the environment
         :rtype: :obj:`dict`"""
@@ -1993,7 +2035,7 @@ class Macro(Logger):
         """**Unofficial Macro API**.
         Sends a line tagged as a block to the output
 
-        :param str line: line to be sent"""
+        :param :obj:`str` line: line to be sent"""
         if isinstance(line, (str, unicode)):
             o = line
         elif operator.isSequenceType(line):

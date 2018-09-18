@@ -73,9 +73,32 @@ class Pool(PyTango.Device_4Impl, Logger):
         self._pool.add_listener(self.on_pool_changed)
 
     def get_full_name(self):
+        """Compose full name from the TANGO_HOST information and device name.
+
+        In case Sardana is used with Taurus 3 the full name is of format
+        "dbhost:dbport/<domain>/<family>/<member>" where dbhost may be either
+        FQDN or PQDN, depending on the TANGO_HOST configuration.
+
+        In case Sardana is used with Taurus 4 the full name is of format
+        "tango://dbhost:dbport/<domain>/<family>/<member>" where dbhost is
+        always FQDN.
+
+        :return: this device full name
+        :rtype: :obj:`str`
+        """
         db = PyTango.Util.instance().get_database()
         db_name = db.get_db_host() + ":" + db.get_db_port()
-        return db_name + "/" + self.get_name()
+        # try to use Taurus 4 to retrieve FQDN
+        try:
+            from taurus.core.tango.tangovalidator import \
+                TangoAuthorityNameValidator
+            db_name = "//%s" % db_name
+            db_name, _, _ = TangoAuthorityNameValidator().getNames(db_name)
+        # if Taurus3 in use just continue
+        except ImportError:
+            pass
+        full_name = db_name + "/" + self.get_name()
+        return full_name
 
     @property
     def pool(self):
@@ -536,6 +559,9 @@ class Pool(PyTango.Device_4Impl, Logger):
                 elif elem_type == ElementType.PseudoCounter:
                     data["value"] = {"abs_change": "1.0"}
                 elif elem_type == ElementType.IORegister:
+                    # this may be not correct when Value is of type bool or str
+                    # but apparently this callback nevers sets a value in the
+                    # database at the time of adding the #458 (github)
                     data["value"] = {"abs_change": "1"}
                 db.put_device_attribute_property(device_name, data)
             except:
@@ -584,7 +610,8 @@ class Pool(PyTango.Device_4Impl, Logger):
             cfg.append(attr)
         elif elem_type == ElementType.IORegister:
             attr = elem_proxy.get_attribute_config_ex("value")[0]
-            attr.events.ch_event.abs_change = "1"
+            if attr.data_type != PyTango.DevBoolean:
+                attr.events.ch_event.abs_change = "1"
             cfg.append(attr)
         elem_proxy.set_attribute_config(cfg)
 
@@ -1147,7 +1174,7 @@ Tango command to delete element.
 
 :param argin:
     {0}
-:type argin: str
+:type argin: :obj:`str`
 :return:
     {1}
 """.format(DELETE_ELEMENT_PAR_IN_DOC, DELETE_ELEMENT_PAR_OUT_DOC)
@@ -1175,10 +1202,10 @@ Tango command to get detailed information about a controller class.
 
 :param argin:
     {0}
-:type argin: str
+:type argin: :obj:`str`
 :return:
     {1}
-:rtype: str
+:rtype: :obj:`str`
 """.format(GET_CONTROLLER_CLASS_INFO_PAR_IN_DOC, GET_CONTROLLER_CLASS_INFO_PAR_OUT_DOC)
 
 RELOAD_CONTROLLER_LIB_PAR_IN_DOC = """\
@@ -1192,7 +1219,7 @@ Tango command to reload the controller library code.
 
 :param argin:
     {0}
-:type argin: str
+:type argin: :obj:`str`
 :return:
     {1}
 """.format(RELOAD_CONTROLLER_LIB_PAR_IN_DOC, RELOAD_CONTROLLER_LIB_PAR_OUT_DOC)
@@ -1209,7 +1236,7 @@ where the class is described).
 
 :param argin:
     {0}
-:type argin: str
+:type argin: :obj:`str`
 :return:
     {1}
 """.format(RELOAD_CONTROLLER_CLASS_PAR_IN_DOC, RELOAD_CONTROLLER_CLASS_PAR_OUT_DOC)
@@ -1338,6 +1365,22 @@ class PoolClass(PyTango.DeviceClass):
             [PyTango.DevVarStringArray,
              "List of instruments (internal property)",
              []],
+        'LogstashHost':
+            [PyTango.DevString,
+             "Hostname where Logstash runs. "
+             "This property has been included in Sardana on a provisional "
+             "basis. Backwards incompatible changes (up to and including "
+             "its removal) may occur if deemed necessary by the "
+             "core developers.",
+             None],
+        'LogstashPort':
+            [PyTango.DevLong,
+             "Port on which Logstash will listen on events. "
+             "This property has been included in Sardana on a provisional "
+             "basis. Backwards incompatible changes (up to and including "
+             "its removal) may occur if deemed necessary by the "
+             "core developers.",
+             None]
     }
 
     #    Command definitions

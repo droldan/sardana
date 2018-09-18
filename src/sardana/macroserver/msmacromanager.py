@@ -35,14 +35,21 @@ import os
 import sys
 import copy
 import inspect
+import logging
 import functools
 import traceback
+import threading
 
 from lxml import etree
 
 from PyTango import DevFailed
 
-from taurus.external.ordereddict import OrderedDict
+try:
+    from collections import OrderedDict
+except ImportError:
+    # For Python < 2.7
+    from ordereddict import OrderedDict
+
 from taurus.core.util.log import Logger
 from taurus.core.util.codecs import CodecFactory
 
@@ -56,15 +63,18 @@ from sardana.macroserver.msmetamacro import MACRO_TEMPLATE, MacroLibrary, \
     MacroClass, MacroFunction
 from sardana.macroserver.msparameter import ParamDecoder, FlatParamDecoder, \
     WrongParam
-from sardana.macroserver.macro import Macro, MacroFunc
+from sardana.macroserver.macro import Macro, MacroFunc, ExecMacroHook, \
+    Hookable
 from sardana.macroserver.msexception import UnknownMacroLibrary, \
     LibraryError, UnknownMacro, MissingEnv, AbortException, StopException, \
     MacroServerException, UnknownEnv
+from sardana.spock.parser import ParamParser
 
 # These classes are imported from the "client" part of sardana, if finally
 # both the client and the server side needs them, place them in some
 # common location
 from sardana.taurus.core.tango.sardana.macro import createMacroNode
+
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -284,12 +294,12 @@ class MacroManager(MacroServerManager):
 
         :param lib_name:
             module name, python file name, or full file name (with path)
-        :type lib_name: str
+        :type lib_name: :obj:`str`
         :param macro_name:
             an optional macro name. If given a macro template code is appended
             to the end of the file (default is None meaning no macro code is
             added)
-        :type macro_name: str
+        :type macro_name: :obj:`str`
 
         :return:
             a sequence with three items: full_filename, code, line number is 0
@@ -501,6 +511,12 @@ class MacroManager(MacroServerManager):
 
         params = dict(module=m, name=module_name,
                       macro_server=self.macro_server, exc_info=exc_info)
+
+        # Dictionary for gathering macros with errors
+        macro_errors = {}
+        count_correct_macros = 0
+        count_incorrect_macros = 0
+
         if m is None:
             file_name = self._findMacroLibName(module_name)
             if file_name is None:
@@ -519,12 +535,36 @@ class MacroManager(MacroServerManager):
             for _, macro in inspect.getmembers(m, _is_macro):
                 try:
                     self.addMacro(macro_lib, macro)
-                except:
+                    count_correct_macros += 1
+                except Exception as e:
+                    count_incorrect_macros += 1
                     self.error("Error adding macro %s", macro.__name__)
                     self.debug("Details:", exc_info=1)
-        if macro_lib.has_macros():
-            self._modules[module_name] = macro_lib
-        return macro_lib
+                    macro_errors[macro.__name__] = str(e)
+        try:
+            if macro_lib.has_macros():
+                self._modules[module_name] = macro_lib
+            return macro_lib
+        finally:
+            if macro_errors:
+                msg = ""
+                for key, value in macro_errors.iteritems():
+                    msg_part = ("\n" + "Error adding macro(s): " + key + "\n"
+                                + "It presents an error: \n" + str(value))
+                    msg += str(msg_part) + "\n"
+                correct_macros = ("%d macro(s) correctly loaded" %
+                                  count_correct_macros)
+                incorrect_macros = ("%d macro(s) could not be loaded" %
+                                    count_incorrect_macros)
+
+                msg = (msg + "\n" + "Summary:" + "\n" + correct_macros
+                       + "\n" + incorrect_macros + "\n")
+
+                if count_correct_macros == 0:
+                    msg += "\nUse addmaclib to reload the corrected macro(s)\n"
+                if count_correct_macros != 0:
+                    msg += "\nUse relmaclib to reload the corrected macro(s)\n"
+                raise Exception(msg)
 
     def addMacro(self, macro_lib, macro):
         add = self.addMacroFunction
@@ -574,7 +614,7 @@ class MacroManager(MacroServerManager):
         :param filter:
             a regular expression for macro names [default: None, meaning all
             macros]
-        :type filter: str
+        :type filter: :obj:`str`
         :return: a :obj:`dict` containing information about macros
         :rtype:
             :obj:`dict`\<:obj:`str`\, :class:`~sardana.macroserver.msmetamacro.MacroCode`\>"""
@@ -595,7 +635,7 @@ class MacroManager(MacroServerManager):
         :param filter:
             a regular expression for macro names [default: None, meaning all
             macros]
-        :type filter: str
+        :type filter: :obj:`str`
         :return: a :obj:`dict` containing information about macro classes
         :rtype:
             :obj:`dict`\<:obj:`str`\, :class:`~sardana.macroserver.msmetamacro.MacroClass`\>"""
@@ -612,7 +652,7 @@ class MacroManager(MacroServerManager):
         :param filter:
             a regular expression for macro names [default: None, meaning all
             macros]
-        :type filter: str
+        :type filter: :obj:`str`
         :return: a :obj:`dict` containing information about macro functions
         :rtype:
             :obj:`dict`\<:obj:`str`\, :class:`~sardana.macroserver.msmetamacro.MacroFunction`\>"""
@@ -737,7 +777,8 @@ class MacroManager(MacroServerManager):
             ret.append(param_str)
         return ret
 
-    def prepareMacro(self, macro_class, par_list, init_opts={}, prepare_opts={}):
+    def prepareMacro(self, macro_class, par_list,
+                     init_opts={}, prepare_opts={}):
         """Creates the macro object and calls its prepare method.
            The return value is a tuple (MacroObject, return value of prepare)
         """
@@ -808,6 +849,107 @@ class MacroManager(MacroServerManager):
         return me
 
 
+class LogMacroManager(object):
+    """Manage user-oriented macro logging to a file. It is configurable with
+    LogMacro, LogMacroMode, LogMacroFormat and LogMacroDir environment
+    variables.
+
+    .. note::
+        The LogMacroManager class has been included in Sardana
+        on a provisional basis. Backwards incompatible changes
+        (up to and including its removal) may occur if
+        deemed necessary by the core developers.
+    """
+
+    DEFAULT_DIR = os.path.join(os.sep, "tmp")
+    DEFAULT_FMT = "%(levelname)-8s %(asctime)s %(name)s: %(message)s"
+    DEFAULT_MODE = 0
+
+    def __init__(self, macro_obj):
+        self._macro_obj = macro_obj
+        self._file_handler = None
+        self._enabled = False
+
+    def enable(self):
+        """Enable macro logging only if the following requirements are
+        fulfilled:
+            * this is the top-most macro
+            * macro logging is enabled by user
+
+        :return: True or False, depending if logging was enabled or not
+        :rtype: boolean
+        """
+        macro_obj = self._macro_obj
+        executor = macro_obj.executor
+        door = macro_obj.door
+
+        # enable logging only for the top-most macros
+        if macro_obj.getParentMacro() is not None:
+            return False
+        # enable logging only if configured by user
+        try:
+            enabled = macro_obj.getEnv("LogMacro")
+        except UnknownEnv:
+            return False
+        if not enabled:
+            return False
+
+        try:
+            logging_mode = macro_obj.getEnv("LogMacroMode")
+        except UnknownEnv:
+            logging_mode = self.DEFAULT_MODE
+        try:
+            logging_path = macro_obj.getEnv("LogMacroDir")
+        except UnknownEnv:
+            logging_path = self.DEFAULT_DIR
+            macro_obj.setEnv("LogMacroDir", logging_path)
+
+        door_name = door.name
+        # Cleaning name in case alias does not exist
+        door_name = door_name.replace(":", "_").replace("/", "_")
+        file_name = "session_" + door_name + ".log"
+        log_file = os.path.join(logging_path, file_name)
+
+        if logging_mode:
+            bck_counts = 100
+        else:
+            bck_counts = 0
+
+        self._file_handler = file_handler = \
+            logging.handlers.RotatingFileHandler(log_file,
+                                                 backupCount=bck_counts)
+        file_handler.doRollover()
+
+        try:
+            format_to_set = macro_obj.getEnv("LogMacroFormat")
+        except UnknownEnv:
+            format_to_set = self.DEFAULT_FMT
+        log_format = logging.Formatter(format_to_set)
+        file_handler.setFormatter(log_format)
+        # attach the same handler to two different loggers due to
+        # lack of hierarchy between them (see: sardana-org/sardana#703)
+        macro_obj.addLogHandler(file_handler)
+        executor.addLogHandler(file_handler)
+        self._enabled = True
+        return True
+
+    def disable(self):
+        """Disable macro logging only if it was enabled before.
+
+        :return: True or False, depending if logging was disabled or not
+        :rtype: boolean
+        """
+
+        if not self._enabled:
+            return False
+        macro_obj = self._macro_obj
+        executor = macro_obj.executor
+        file_handler = self._file_handler
+        macro_obj.removeLogHandler(file_handler)
+        executor.removeLogHandler(file_handler)
+        return True
+
+
 class MacroExecutor(Logger):
     """ """
 
@@ -844,6 +986,10 @@ class MacroExecutor(Logger):
         self._stopped = False
         self._paused = False
         self._last_macro_status = None
+        # threading events for synchronization of stopping/abortting of
+        # reserved objects
+        self._stop_done = None
+        self._abort_done = None
 
         name = "%s.%s" % (str(door), self.__class__.__name__)
         self._macro_status_codec = CodecFactory().getCodec('json')
@@ -862,6 +1008,27 @@ class MacroExecutor(Logger):
     @property
     def macro_manager(self):
         return self.macro_server.macro_manager
+
+    def getGeneralHooks(self):
+        """Get data structure containing definition of the general hooks.
+
+        .. note::
+        The `general_hooks` has been included in Sardana
+        on a provisional basis. Backwards incompatible changes
+        (up to and including its removal) may occur if
+        deemed necessary by the core developers.
+
+        .. todo::
+        General hooks should reflect the state of configuration at the
+        macro/sequence start.
+        """
+
+        try:
+            return self.door.get_env("_GeneralHooks")["_GeneralHooks"]
+        except KeyError:
+            return []
+
+    general_hooks = property(getGeneralHooks)
 
     def getNewMacroID(self):
         self._macro_counter -= 1
@@ -934,6 +1101,17 @@ class MacroExecutor(Logger):
         macro_line = "%s(%s) -> %s" % (macro_name, params_str, macro_id)
         return macro_line
 
+    def _prepareGeneralHooks(self, macro_obj):
+        if not isinstance(macro_obj, Hookable):
+            return
+        general_hooks = self.general_hooks
+        if len(general_hooks) == 0:
+            return
+        for hook_info_raw, hook_places in general_hooks:
+            hook_info = ParamParser().parse(hook_info_raw)
+            hook = ExecMacroHook(macro_obj, hook_info)
+            macro_obj.appendHook((hook, hook_places))
+
     def _prepareXMLMacro(self, xml_macro, parent_macro=None):
         macro_meta, _, macro_params = self._decodeMacroParameters(xml_macro)
         macro_name = macro_meta.name
@@ -946,14 +1124,18 @@ class MacroExecutor(Logger):
         }
 
         macro_obj = self._createMacroObj(macro_meta, macro_params, init_opts)
+
+        self._prepareGeneralHooks(macro_obj)
+
         for macro in xml_macro.findall('macro'):
             hook = MacroExecutor.RunSubXMLHook(self, macro)
             hook_hints = macro.findall('hookPlace')
             if hook_hints is None:
-                macro_obj.hooks = [hook]
+                macro_obj.appendHook((hook, []))
             else:
                 hook_places = [h.text for h in hook_hints]
-                macro_obj.hooks = [(hook, hook_places)]
+                macro_obj.appendHook((hook, hook_places))
+
         prepare_result = self._prepareMacroObj(macro_obj, macro_params)
         return macro_obj, prepare_result
 
@@ -1060,17 +1242,31 @@ class MacroExecutor(Logger):
         macro_name = meta_macro.name
         macro_id = init_opts.get("id")
         if macro_id is None:
-            macro_id = str(self.getNewMacroID())
             init_opts["id"] = macro_id
-        macro_line = self._composeMacroLine(macro_name, macro_params, macro_id)
+        macro_line = self._composeMacroLine(macro_name,
+                                            macro_params,
+                                            macro_id)
 
         init_opts['macro_line'] = macro_line
 
-        return self.prepareMacroObj(meta_macro, macro_params, init_opts,
-                                    prepare_opts)
+        macro_obj, prepare_result = self.prepareMacroObj(meta_macro,
+                                                         macro_params,
+                                                         init_opts,
+                                                         prepare_opts)
+
+        self._prepareGeneralHooks(macro_obj)
+
+        return macro_obj, prepare_result
 
     def getRunningMacro(self):
         return self._macro_pointer
+
+    def clearRunningMacro(self):
+        """Clear pointer to the running macro.
+
+        ..warning:: Do not call it while the macro is running.
+        """
+        self._macro_pointer = None
 
     def __stopObjects(self):
         """Stops all the reserved objects in the executor"""
@@ -1096,11 +1292,23 @@ class MacroExecutor(Logger):
                     self.warning("Unable to abort %s" % obj)
                     self.debug("Details:", exc_info=1)
 
+    def _setStopDone(self, _):
+        self._stop_done.set()
+
+    def _waitStopDone(self, timeout=None):
+        self._stop_done.wait(timeout)
+
+    def _setAbortDone(self, _):
+        self._abort_done.set()
+
+    def _waitAbortDone(self, timeout=None):
+        self._abort_done.wait(timeout)
+
     def abort(self):
-        self.macro_server.add_job(self._abort, None)
+        self.macro_server.add_job(self._abort, self._setAbortDone)
 
     def stop(self):
-        self.macro_server.add_job(self._stop, None)
+        self.macro_server.add_job(self._stop, self._setStopDone)
 
     def _abort(self):
         m = self.getRunningMacro()
@@ -1165,6 +1373,8 @@ class MacroExecutor(Logger):
         self._macro_stack = []
         self._xml_stack = []
         self._macro_pointer = None
+        self._stop_done = threading.Event()
+        self._abort_done = threading.Event()
         self._aborted = False
         self._stopped = False
         self._paused = False
@@ -1230,9 +1440,14 @@ class MacroExecutor(Logger):
     _runXMLMacro = __runXMLMacro
 
     def runMacro(self, macro_obj):
+
         name = macro_obj._getName()
         desc = macro_obj._getDescription()
         door = self.door
+
+        log_macro_manager = LogMacroManager(macro_obj)
+        log_macro_manager.enable()
+
         if self._aborted:
             self.sendMacroStatusAbort()
             raise AbortException("aborted between macros (before %s)" % name)
@@ -1281,9 +1496,11 @@ class MacroExecutor(Logger):
         # make sure the macro's on_abort is called and that a proper macro
         # status is sent
         if self._stopped:
+            self._waitStopDone()
             macro_obj._stopOnError()
             self.sendMacroStatusStop()
         elif self._aborted:
+            self._waitAbortDone()
             macro_obj._abortOnError()
             self.sendMacroStatusAbort()
 
@@ -1295,10 +1512,11 @@ class MacroExecutor(Logger):
                 self.sendMacroStatusException(exc_info)
             self.debug("[ENDEX] (%s) runMacro %s" %
                        (macro_exp.__class__.__name__, name))
-            if isinstance(macro_exp, MacroServerException) and macro_obj.parent_macro is None:
-                door.debug(macro_exp.traceback)
-                door.error("An error occurred while running %s:\n%s" %
-                           (macro_obj.description, macro_exp.msg))
+            if isinstance(macro_exp, MacroServerException):
+                if macro_obj.parent_macro is None:
+                    door.debug(macro_exp.traceback)
+                    door.error("An error occurred while running %s:\n%s" %
+                               (macro_obj.description, macro_exp.msg))
             self._popMacro()
             raise macro_exp
         self.debug("[ END ] runMacro %s" % desc)
@@ -1315,6 +1533,8 @@ class MacroExecutor(Logger):
                        'Set "%s" environment variable ' % env_var_name +
                        'to True in order to change it.')
             self._macro_pointer = None
+
+        log_macro_manager.disable()
 
         return result
 

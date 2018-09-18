@@ -310,7 +310,7 @@ class MSDoor(MSObject):
         self.fire_event(EventType("macrostatus", priority=propagate),
                         macro_status)
 
-    result = property(get_result, set_result)
+    macro_status = property(get_macro_status, set_macro_status)
 
     def get_record_data(self):
         return self._record_data
@@ -334,11 +334,11 @@ class MSDoor(MSObject):
 
         :param key:
             environment variable name [default: None, meaning all environment]
-        :type key: str
+        :type key: :obj:`str`
         :param macro_name:
             local context for a given macro [default: None, meaning no macro
             context is used]
-        :type macro_name: str
+        :type macro_name: :obj:`str`
 
         :raises: UnknownEnv"""
         return self.macro_server.environment_manager.getAllDoorEnv(self.name)

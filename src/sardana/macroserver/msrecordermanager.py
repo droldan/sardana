@@ -35,7 +35,11 @@ import sys
 import copy
 import inspect
 
-from taurus.external.ordereddict import OrderedDict
+try:
+    from collections import OrderedDict
+except ImportError:
+    # For Python < 2.7
+    from ordereddict import OrderedDict
 
 from sardana import sardanacustomsettings
 from sardana.sardanaexception import format_exception_only_str
@@ -83,26 +87,13 @@ class RecorderManager(MacroServerManager):
         #: value - recorder name
         self._custom_scan_recorder_map = getattr(sardanacustomsettings,
                                                  "SCAN_RECORDER_MAP",
-                                                 None)
+                                                 {})
         #: dict<str, str>
         #: key   - scan file extension
         #: value - list with recorder name(s)
         self._scan_recorder_map = {}
 
         MacroServerManager.reInit(self)
-
-    def cleanUp(self):
-        if self.is_cleaned():
-            return
-
-        if self._modules:
-            for _, types_dict in self._modules.items():
-                for type_name in types_dict:
-                    Type.removeType(type_name)
-
-        self._recorder_path = None
-        self._modules = None
-        MacroServerManager.cleanUp(self)
 
     def setScanRecorderMap(self, recorder_map):
         """Registers a new map of recorders in this manager.
@@ -144,7 +135,7 @@ class RecorderManager(MacroServerManager):
     def getRecorderMetaClass(self, recorder_name):
         """ Return the Recorder class for the given class name.
         :param klass_name: Name of the recorder class.
-        :type klass_name: str
+        :type klass_name: :obj:`str`
         :return:  a :obj:`class` class of recorder or None if it does not exist
         :rtype:
             :obj:`class:`~sardana.macroserver.msmetarecorder.RecorderClass`\>
@@ -155,12 +146,16 @@ class RecorderManager(MacroServerManager):
         return ret
 
     def getRecorderMetaClasses(self, filter=None, extension=None):
-        """ Returns a :obj:`dict` containing information about recorder classes.
+        """ Returns a :obj:`dict` containing information about recorder
+        classes. These may be limitted by two conditions - filter and
+        extension. The first one selects just the classes inheriting from the
+        filter. The second one selects just the classes implementing a given
+        extension (format). Both can be used at the same time.
 
         :param filter: a klass of a valid type of Recorder
         :type filter: obj
         :param filter: a scan file extension
-        :type filter: str
+        :type filter: :obj:`str`
         :return: a :obj:`dict` containing information about recorder classes
         :rtype:
             :obj:`dict`\<:obj:`str`\,
@@ -170,21 +165,22 @@ class RecorderManager(MacroServerManager):
             filter = DataRecorder
         ret = {}
         for name, klass in self._recorder_dict.items():
-            if issubclass(klass.recorder_class, filter):
-                if extension:
-                    if self._custom_scan_recorder_map:
-                        _map = self._custom_scan_recorder_map
-                        name = _map.get(extension, None)
-                        if name:
-                            klass = self.getRecorderMetaClass(name)
-                            ret[name] = klass
-                    else:
-                        _map = self._scan_recorder_map
-                        if (extension in _map.keys() and
-                                klass in _map[extension]):
-                            ret[name] = klass
+            if not issubclass(klass.recorder_class, filter):
+                continue
+            if extension is not None:
+                # fist look into the SCAN_RECORDER_MAP
+                _map = self._custom_scan_recorder_map or {}
+                name = _map.get(extension, None)
+                if name is not None:
+                    klass = self.getRecorderMetaClass(name)
+                # second look into the standard map
                 else:
-                    ret[name] = klass
+                    _map = self._scan_recorder_map
+                    if extension not in _map.keys():
+                        continue
+                    elif klass not in _map[extension]:
+                        continue
+            ret[name] = klass
         return ret
 
     def getRecorderClasses(self, filter=None, extension=None):
@@ -192,7 +188,7 @@ class RecorderManager(MacroServerManager):
         :param filter: a klass of a valid type of Recorder
         :type filter: obj
         :param filter: a scan file extension
-        :type filter: str
+        :type filter: :obj:`str`
         :return: a :obj:`dict` containing information about recorder classes
         :rtype:
             :obj:`dict`\<:obj:`str`\, :class:`DataRecorder`\>
@@ -207,7 +203,7 @@ class RecorderManager(MacroServerManager):
     def getRecorderClass(self, klass_name):
         """ Return the Recorder class for the given class name.
         :param klass_name: Name of the recorder class.
-        :type klass_name: str
+        :type klass_name: :obj:`str`
         :return:  a :obj:`class` class of recorder or None if it does not exist
         :rtype:
             :obj:`class:`DataRecorder`\>

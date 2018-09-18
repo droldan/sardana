@@ -173,6 +173,7 @@ class Door(SardanaDevice):
         if self.getRunningMacro():
             self.debug("aborting running macro")
             self.macro_executor.abort()
+            self.macro_executor.clearRunningMacro()
 
         for handler, filter, format in self._handler_dict.values():
             handler.finish()
@@ -324,11 +325,6 @@ class Door(SardanaDevice):
         value = attr.get_write_value()
         self.door.get_input_handler().input_received(value)
 
-    #@DebugIt()
-    def read_ElementList(self, attr):
-        element_list = self.macro_server_device.getElementList()
-        attr.set_value(*element_list)
-
     def sendRecordData(self, format, data):
         self.push_change_event('RecordData', format, data)
 
@@ -348,6 +344,10 @@ class Door(SardanaDevice):
             throw_sardana_exception(mse)
 
         attr.set_value(*data)
+        # workaround for a bug in PyTango (tango-controls/pytango#147),
+        # i.e. temporary solution for issue #447
+        # (storing reference to data so it can not be destroyed by GC)
+        self.__buf_data = data
 
     def read_MacroStatus(self, attr):
         attr.set_value('', '')
@@ -357,9 +357,11 @@ class Door(SardanaDevice):
         return self.StopMacro()
 
     def AbortMacro(self):
-        self.debug("Aborting")
+        macro = self.getRunningMacro()
+        if macro is None:
+            return
+        self.debug("aborting %s" % macro._getDescription())
         self.macro_executor.abort()
-        self.debug("Finished aborting")
 
     def is_Abort_allowed(self):
         return True
@@ -378,17 +380,19 @@ class Door(SardanaDevice):
         macro = self.getRunningMacro()
         if macro is None:
             return
-        self.debug("stopping macro %s" % macro._getDescription())
+        self.debug("stopping %s" % macro._getDescription())
         self.macro_executor.stop()
 
     def is_StopMacro_allowed(self):
-        return self.get_state() == Macro.Running
+        is_stop_allowed = (self.get_state() == Macro.Running or
+                           self.get_state() == Macro.Pause)
+        return is_stop_allowed
 
     def ResumeMacro(self):
         macro = self.getRunningMacro()
         if macro is None:
             return
-        self.debug("resume macro %s" % macro._getDescription())
+        self.debug("resuming %s" % macro._getDescription())
         self.macro_executor.resume()
 
     def is_ResumeMacro_allowed(self):
@@ -512,8 +516,4 @@ class DoorClass(SardanaDeviceClass):
                        {'label': 'Record Data', }],
         'MacroStatus': [[DevEncoded, SCALAR, READ],
                         {'label': 'Macro Status', }],
-        'ElementList': [[DevEncoded, SCALAR, READ],
-                        {'label': "Element list",
-                            'description': 'the list of all elements (a '
-                            'JSON encoded dict)', }],
     }

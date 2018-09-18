@@ -15,10 +15,11 @@ Sardana API
     0D experiment channel API <api_0D>
     1D experiment channel API <api_1D>
     2D experiment channel API <api_2D>
+    Trigger/gate API <api_triggergate>
     Pseudo motor API <api_pseudomotor>
     Pseudo counter API <api_pseudocounter>
-    Pool tango API <tango_device_pool>
-    Macro server tango API <tango_macroserver>
+    Measurement group API <api_measurementgroup>
+    MacroServer API <api_macroserver>
+    Pool API <api_pool>
     Library <sardana/sardana>
     Test API <api_test>
-    

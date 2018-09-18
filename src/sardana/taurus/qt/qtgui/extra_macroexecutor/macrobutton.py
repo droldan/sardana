@@ -88,6 +88,12 @@ class MacroButton(TaurusWidget):
         self.connect(self.ui.button, Qt.SIGNAL('clicked()'),
                      self._onButtonClicked)
 
+    # Override default implementation of handleEvent from TaurusWidget
+    # in order to avoid button's text being lost on the MS restart.
+    # More detais in #293 and taurus-org/taurus#635
+    def handleEvent(self, evt_src, evt_type, evt_value):
+        pass
+
     def toggleProgress(self, visible):
         '''deprecated'''
         self.warning('toggleProgress is deprecated. Use showProgress')
@@ -208,7 +214,7 @@ class MacroButton(TaurusWidget):
         '''same as :meth:`setText`
         '''
         # SHOULD ALSO BE POSSIBLE TO SET AN ICON
-        self.ui.button.setText(text)
+        self.ui.button.setText("Run/Abort:\n" + text)
 
     def setMacroName(self, name):
         '''set the name of the macro to be executed
@@ -223,15 +229,19 @@ class MacroButton(TaurusWidget):
         '''change a given argument
 
         :param index: (int) positional index for this argument
-        :param value: (str) value for this argument
+        :param value: value for this argument
         '''
         # make sure that the macro_args is at least as long as index
         while len(self.macro_args) < index + 1:
             self.macro_args.append('')
-        # update the given argument
+        # some signals may come with other than string argumenst e.g. int
+        # so convert them to string
+        value = str(value)
+        # string arguments may contain spaces so encapsulate them in quotes
         if re.search('\s', value):
             value = '"{0}"'.format(value)
-        self.macro_args[index] = str(value)
+        # update the given argument
+        self.macro_args[index] = value
         # update tooltip
         self.setToolTip(self.macro_name + ' ' + ' '.join(self.macro_args))
 

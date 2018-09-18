@@ -32,9 +32,12 @@ import copy
 import math
 
 from taurus.core.util.singleton import Singleton
+from taurus import Device, Attribute, getSchemeFromName, Factory
+from taurus.core.taurusexception import TaurusException
+from taurus.core import TaurusElementType
+from taurus import Release as taurus_release
 
 from sardana.macroserver.scan.recorder import DataHandler
-from threading import RLock
 
 
 class ColumnDesc(object):
@@ -186,6 +189,71 @@ class Record(object):
     def setWritten(self):
         self.written = 1
 
+    def __get_t3_name(self, item):
+        # check if the item is a device name or an attribute name
+        try:
+            proxy = Device(item)
+        except TaurusException:
+            try:
+                proxy = Attribute(item)
+            except TaurusException:
+                raise KeyError(item)
+
+        v = proxy.getNameValidator()
+        params = v.getParams(proxy.getFullName())
+        name = '{0}:{1}/{2}'.format(params['host'].split('.')[0],
+                                    params['port'],
+                                    params['devicename'])
+
+        attr_name = params.get('attributename', None)
+        if attr_name is not None:
+            name = '{0}/{1}'.format(name, params['attributename'])
+
+        return name
+
+    def __get_t4_name(self, item):
+        scheme = getSchemeFromName(item)
+        f = Factory(scheme=scheme)
+        element_types = f.getValidTypesForName(item)
+        if TaurusElementType.Attribute in element_types:
+            validator = f.getAttributeNameValidator()
+        elif TaurusElementType.Device in element_types:
+            validator = f.getDeviceNameValidator()
+        else:
+            raise KeyError(item)
+
+        name = validator.getNames(item)[0]
+        return name
+
+    def __get_tango_name(self, item):
+        name = self.__get_t4_name(item)
+        return name
+
+    def __getitem__(self, item):
+        item = item.lower()
+        if item == 'dt':
+            item = 'timestamp'
+        if item in self.data:
+            return self.data[item]
+
+        # --------------------------------------------------------------------
+        # TODO: refactor this block once data uses taurus 4 names
+
+        if int(taurus_release.version.split('.')[0]) < 4:
+            # Taurus 3 backward compatibility
+            name = self.__get_t3_name(item)
+            data = self.data[name]
+        else:
+            try:
+                name = self.__get_t4_name(item)
+                data = self.data[name]
+            except KeyError:
+                # Using a Tango URL
+                name = self.__get_tango_name(item)
+                data = self.data[name]
+        # --------------------------------------------------------------------
+        return data
+
 
 class RecordEnvironment(dict):
     """  A RecordEnvironment is a set of arbitrary pairs of type
@@ -230,17 +298,17 @@ class RecordList(dict):
     It is composed of a environment and a list of records"""
 
     def __init__(self, datahandler, environ=None, apply_interpolation=False,
-                 initial_data=None):
+                 apply_extrapolation=False, initial_data=None):
 
         self.datahandler = datahandler
-        self.applyInterpolation = apply_interpolation
+        self.apply_interpolation = apply_interpolation
+        self.apply_extrapolation = apply_extrapolation
         self.initial_data = initial_data
         if environ is None:
             self.environ = RecordEnvironment()
         else:
             self.environ = environ
         self.records = []
-        self.rlock = RLock()
         # currentIndex indicates the place in the records list
         # where the next completed record will be written
         self.currentIndex = 0
@@ -280,7 +348,7 @@ class RecordList(dict):
                 self.refMoveablesLabels.append(dataDesc.name)
             else:
                 name = dataDesc.name
-                if not name in ('point_nb', 'timestamp'):
+                if name not in ('point_nb', 'timestamp'):
                     self.channelLabels.append(name)
             self.labels.append(dataDesc.name)
         for label in self.labels:
@@ -296,7 +364,7 @@ class RecordList(dict):
            - each moveable initialized with None
         '''
         recordno = self.recordno
-        if self.initial_data and self.initial_data.has_key(recordno):
+        if self.initial_data and recordno in self.initial_data:
             initial_data = self.initial_data.get(recordno)
         else:
             initial_data = dict()
@@ -334,8 +402,42 @@ class RecordList(dict):
             for k, v in data.items():
                 if v is None:
                     continue
-                if math.isnan(v):
+                # numpy arrays (1D or 2D) are valid values and does not require
+                # interpolation but provokes TypeError
+                try:
+                    interpolate = math.isnan(v)
+                except TypeError:
+                    interpolate = False
+                if interpolate:
                     data[k] = prev_data[k]
+
+    def applyExtrapolation(self, record):
+        """Apply extrapolation to the given record"""
+        data = record.data
+        for k, v in data.items():
+            if v is None:
+                continue
+            # numpy arrays (1D or 2D) are valid values and does not require
+            # extrapolation but provokes TypeError
+            try:
+                extrapolate = math.isnan(v)
+            except TypeError:
+                extrapolate = False
+            if extrapolate:
+                next_idx = self.currentIndex + 1
+                # dig into the record list for the first valid value in the
+                # column and use it to extrapolate missing initial values
+                while True:
+                    next_data = self.records[next_idx].data
+                    next_v = next_data[k]
+                    try:
+                        is_valid = not math.isnan(next_v)
+                    except TypeError:
+                        is_valid = True
+                    if is_valid:
+                        break
+                    next_idx += 1
+                data[k] = next_v
 
     def addData(self, data):
         """Adds data to the record list
@@ -343,33 +445,36 @@ class RecordList(dict):
         :param data: dictionary with two mandatory elements: label - string
                      and data - list of values
         :type data:  dict"""
-        with self.rlock:
-            label = data['label']
-            rawData = data['data']
-            idxs = data['index']
+        label = data['label']
+        rawData = data['data']
+        idxs = data['index']
 
-            maxIdx = max(idxs)
-            recordsLen = len(self.records)
-            # Calculate missing records
-            missingRecords = recordsLen - (maxIdx + 1)
-            # TODO: implement proper handling of timestamps and moveables
-            if missingRecords < 0:
-                missingRecords = abs(missingRecords)
-                self.initRecords(missingRecords)
-            for idx, value in zip(idxs, rawData):
-                rc = self.records[idx]
-                rc.setRecordNo(idx)
-                rc.data[label] = value
-                self.columnIndexDict[label] = idx + 1
-            self.tryToAdd(idx, label)
+        maxIdx = max(idxs)
+        recordsLen = len(self.records)
+        # Calculate missing records
+        missingRecords = recordsLen - (maxIdx + 1)
+        # TODO: implement proper handling of timestamps and moveables
+        if missingRecords < 0:
+            missingRecords = abs(missingRecords)
+            self.initRecords(missingRecords)
+        for idx, value in zip(idxs, rawData):
+            rc = self.records[idx]
+            rc.setRecordNo(idx)
+            rc.data[label] = value
+            self.columnIndexDict[label] = idx + 1
+        self.tryToAdd(idx, label)
 
     def tryToAdd(self, idx, label):
         start = self.currentIndex
+        # apply extrapolation only at the beginning of the record list
+        apply_extrapolation = (self.apply_extrapolation and start == 0)
         for i in range(start, idx + 1):
             if self.isRecordCompleted(i):
                 rc = self.records[i]
+                if apply_extrapolation:
+                    self.applyExtrapolation(rc)
                 self[self.currentIndex] = rc
-                if self.applyInterpolation:
+                if self.apply_interpolation:
                     self.applyZeroOrderInterpolation(rc)
                 self.datahandler.addRecord(self, rc)
                 self.currentIndex += 1
@@ -390,7 +495,7 @@ class RecordList(dict):
         for i in range(start, len(self.records)):
             rc = self.records[i]
             self[self.currentIndex] = rc
-            if self.applyInterpolation:
+            if self.apply_interpolation:
                 self.applyZeroOrderInterpolation(rc)
             self.datahandler.addRecord(self, rc)
             self.currentIndex += 1
@@ -403,9 +508,10 @@ class RecordList(dict):
 class ScanData(RecordList):
 
     def __init__(self, environment=None, data_handler=None,
-                 apply_interpolation=False):
+                 apply_interpolation=False, apply_extrapolation=False):
         dh = data_handler or DataHandler()
-        RecordList.__init__(self, dh, environment, apply_interpolation)
+        RecordList.__init__(self, dh, environment, apply_interpolation,
+                            apply_extrapolation)
 
 
 class ScanFactory(Singleton):
@@ -421,6 +527,8 @@ class ScanFactory(Singleton):
     def getDataHandler(self):
         return DataHandler()
 
-    def getScanData(self, dh, apply_interpolation=False):
+    def getScanData(self, dh, apply_interpolation=False,
+                    apply_extrapolation=False):
         return ScanData(data_handler=dh,
-                        apply_interpolation=apply_interpolation)
+                        apply_interpolation=apply_interpolation,
+                        apply_extrapolation=apply_extrapolation)

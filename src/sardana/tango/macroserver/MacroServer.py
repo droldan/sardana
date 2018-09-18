@@ -31,6 +31,7 @@ import sys
 from PyTango import Util, Except, DevVoid, DevLong, DevString, DevState, \
     DevEncoded, DevVarStringArray, READ, READ_WRITE, SCALAR, SPECTRUM, DebugIt
 
+import taurus
 from taurus.core.util.codecs import CodecFactory
 
 from sardana import State, SardanaServer
@@ -65,6 +66,10 @@ class MacroServer(SardanaDevice):
     def delete_device(self):
         SardanaDevice.delete_device(self)
         self._macro_server.clear_log_report()
+        # Workaround for bug #494.
+        factory = taurus.Factory("tango")
+        for attr in factory.tango_attrs.values():
+            attr.cleanUp()
 
     def init_device(self):
         SardanaDevice.init_device(self)
@@ -377,6 +382,22 @@ class MacroServerClass(SardanaDeviceClass):
             [DevString,
              "Log report format [default: '%s']" % DefaultLogReportFormat,
              DefaultLogReportFormat],
+        'LogstashHost':
+            [DevString,
+             "Hostname where Logstash runs. "
+             "This property has been included in Sardana on a provisional "
+             "basis. Backwards incompatible changes (up to and including "
+             "its removal) may occur if deemed necessary by the "
+             "core developers.",
+             None],
+        'LogstashPort':
+            [DevLong,
+             "Port on which Logstash will listen on events. "
+             "This property has been included in Sardana on a provisional "
+             "basis. Backwards incompatible changes (up to and including "
+             "its removal) may occur if deemed necessary by the "
+             "core developers.",
+             None]
     }
 
     #    Command definitions

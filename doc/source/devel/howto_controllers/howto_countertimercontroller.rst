@@ -23,9 +23,11 @@ be able to create a CounterTimerController with:
 .. code-block:: python
 
     import springfieldlib
-
+		
     from sardana.pool.controller import CounterTimerController
 
+    from sardana import State
+		
     class SpringfieldCounterTimerController(CounterTimerController):
 
         def __init__(self, inst, props, *args, **kwargs):
@@ -150,7 +152,7 @@ Here is an example of the possible implementation of
 
     class SpringfieldCounterTimerController(CounterTimerController):
 
-        def StartOne(self, axis):
+        def StartOne(self, axis, value):
             self.springfield.StartChannel(axis)
 
 As soon as :meth:`~sardana.pool.controller.Startable.StartOne` is invoked,

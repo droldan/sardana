@@ -96,13 +96,16 @@ MaxDimSize = "maxdimsize"
 
 
 class Controller(object):
-    """Base controller class. Do **NOT** inherit from this class directly
+    """
+    Base controller class. Do **NOT** inherit from this class directly
 
-    :param str inst: controller instance name
-    :param dict props: a dictionary containning pairs of property name,
-                       property value
+    :param :obj:`str` inst: controller instance name
+    :param dict props: a dictionary containing pairs of property name,
+    property value
+
     :arg args:
-    :keyword kwargs:"""
+    :keyword kwargs:
+    """
 
     #: .. deprecated:: 1.0
     #:     use :attr:`~Controller.ctrl_properties` instead
@@ -346,7 +349,7 @@ class Controller(object):
         """**Controller API**. The controller instance name.
 
         :return: the controller instance name
-        :rtype: str
+        :rtype: :obj:`str`
 
         .. versionadded:: 1.0"""
         return self._inst_name
@@ -355,7 +358,7 @@ class Controller(object):
         """**Controller API**. The axis name.
 
         :return: the axis name
-        :rtype: str
+        :rtype: :obj:`str`
 
         .. versionadded:: 1.0"""
         ctrl = self._getPoolController()
@@ -501,9 +504,9 @@ class Controller(object):
         Sends a string to the controller.
         Default implementation raises :exc:`NotImplementedError`.
 
-        :param str stream: stream to be sent
+        :param :obj:`str` stream: stream to be sent
         :return: any relevant information e.g. response of the controller
-        :rtype: str"""
+        :rtype: :obj:`str`"""
         raise NotImplementedError("SendToCtrl not implemented")
 
 
@@ -551,30 +554,51 @@ class Stopable(object):
 
     .. note: Do not inherit directly from :class:`Stopable`."""
 
+    def PreAbortAll(self):
+        """**Controller API**. Override if necessary.
+        Called to prepare a abort of all axis (whatever pre-abort means).
+        Default implementation does nothing."""
+        pass
+
+    def PreAbortOne(self, axis):
+        """**Controller API**. Override if necessary.
+        Called to prepare a abort of the given axis (whatever pre-abort means).
+        Default implementation returns True.
+
+        :param int axis: axis number
+        :return: True means a successfull pre-abort or False for a failure
+        :rtype: bool"""
+        return True
+
     def AbortOne(self, axis):
         """**Controller API**. Override is MANDATORY!
         Default implementation raises :exc:`NotImplementedError`.
         Aborts one of the axis
 
         :param int axis: axis number"""
-        raise NotImplementedError("AbortOne must be defined in te controller")
+        raise NotImplementedError("AbortOne must be defined in the controller")
 
     def AbortAll(self):
         """**Controller API**. Override if necessary.
-        Aborts all active axis of this controller. Default implementation
-        calls :meth:`~Controller.AbortOne` on each active axis.
+        Aborts all active axis of this controller.
+        Default implementation does nothing."""
+        pass
 
-        .. versionadded:: 1.0"""
-        exceptions = []
-        axes = self._getPoolController().get_element_axis().keys()
-        for axis in axes:
-            try:
-                self.AbortOne(axis)
-            except:
-                import sys
-                exceptions.append(sys.exc_info())
-        if len(exceptions) > 0:
-            raise Exception(exceptions)
+    def PreStopAll(self):
+        """**Controller API**. Override if necessary.
+        Called to prepare a stop of all axis (whatever pre-stop means).
+        Default implementation does nothing."""
+        pass
+
+    def PreStopOne(self, axis):
+        """**Controller API**. Override if necessary.
+        Called to prepare a stop of the given axis (whatever pre-stop means).
+        Default implementation returns True.
+
+        :param int axis: axis number
+        :return: True means a successfull pre-stop or False for a failure
+        :rtype: bool"""
+        return True
 
     def StopOne(self, axis):
         """**Controller API**. Override if necessary.
@@ -590,21 +614,8 @@ class Stopable(object):
     def StopAll(self):
         """**Controller API**. Override if necessary.
         Stops all active axis of this controller.
-        *This method is reserved for future implementation.*
-        Default implementation calls :meth:`~Controller.StopOne` on each
-        active axis.
-
-        .. versionadded:: 1.0"""
-        exceptions = []
-        axes = self._getPoolController().get_element_axis().keys()
-        for axis in axes:
-            try:
-                self.StopOne(axis)
-            except:
-                import sys
-                exceptions.append(sys.exc_info())
-        if len(exceptions) > 0:
-            raise Exception(exceptions)
+        Default implementation does nothing."""
+        pass
 
 
 class Readable(object):
@@ -1005,6 +1016,8 @@ class ZeroDController(Controller, Readable, Stopable):
     standard_axis_attributes = {
         'Value': {'type': float,
                   'description': 'Value', },
+        'Data': {'type': str,
+                 'description': 'Data', },
     }
     standard_axis_attributes.update(Controller.standard_axis_attributes)
 
@@ -1029,6 +1042,8 @@ class OneDController(Controller, Readable, Startable, Stopable, Loadable):
         'Value': {'type': (float,),
                   'description': 'Value',
                   'maxdimsize': (16 * 1024,)},
+        'Data': {'type': str,
+                 'description': 'Data', },
     }
     standard_axis_attributes.update(Controller.standard_axis_attributes)
 
@@ -1038,6 +1053,7 @@ class OneDController(Controller, Readable, Startable, Stopable, Loadable):
     def __init__(self, inst, props, *args, **kwargs):
         Controller.__init__(self, inst, props, *args, **kwargs)
         self._latency_time = 0
+        self._synchronization = AcqSynch.SoftwareTrigger
 
     def GetAxisPar(self, axis, parameter):
         """**Controller API**. Override is MANDATORY.
@@ -1282,7 +1298,7 @@ class PseudoMotorController(PseudoController):
            .. deprecated:: 1.0
                implement :meth:`~PseudoMotorController.CalcPseudo` instead"""
         raise NotImplementedError(
-            "CalcPseudo must be defined in te controller")
+            "CalcPseudo must be defined in the controller")
 
     def calc_physical(self, axis, pseudo_pos):
         """**Pseudo Motor Controller API**. Override is **MANDATORY**.
@@ -1369,6 +1385,8 @@ class PseudoCounterController(Controller):
     standard_axis_attributes = {
         'Value': {'type': float,
                   'description': 'Value', },
+        'Data': {'type': str,
+                 'description': 'Data', },
     }
 
     #: A :obj:`str` representing the controller gender
@@ -1401,7 +1419,7 @@ class PseudoCounterController(Controller):
 
            .. deprecated:: 1.0
                implement :meth:`~PseudoCounterController.Calc` instead"""
-        raise NotImplementedError("Calc must be defined in te controller")
+        raise NotImplementedError("Calc must be defined in the controller")
 
     def CalcAll(self, values):
         """**Pseudo Counter Controller API**. Override if necessary.
@@ -1435,6 +1453,7 @@ class IORegisterController(Controller, Readable):
         'Value': {'type': float,
                   'description': 'Value', },
     }
+    standard_axis_attributes.update(Controller.standard_axis_attributes)
 
     #: A :obj:`str` representing the controller gender
     gender = 'I/O register controller'
@@ -1442,6 +1461,6 @@ class IORegisterController(Controller, Readable):
     def __init__(self, inst, props, *args, **kwargs):
         Controller.__init__(self, inst, props, *args, **kwargs)
 
-    def WriteOne(self):
+    def WriteOne(self, axis, value):
         """**IORegister Controller API**. Override if necessary."""
         pass

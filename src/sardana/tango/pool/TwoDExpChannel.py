@@ -169,14 +169,6 @@ class TwoDExpChannel(PoolElementDevice):
         # cache. This is due to the fact that the clients (MS) read the value
         # after the acquisition had finished.
         use_cache = twod.is_in_operation() and not self.Force_HW_Read
-        # For the moment we just check if the previous acquisition was
-        # synchronized by hardware and in this case, we use cache and clean the
-        # buffer so the cached value will be returned only at the first readout
-        # after the acquisition. This is a workaround for the step scans which
-        # read the value after the acquisition.
-        if not use_cache and len(twod.value.value_buffer) > 0:
-            use_cache = True
-            twod.value.clear_buffer()
         value = twod.get_value(cache=use_cache, propagate=0)
         if value.error:
             Except.throw_python_exception(*value.exc_info)
@@ -195,7 +187,11 @@ class TwoDExpChannel(PoolElementDevice):
     def read_DataSource(self, attr):
         data_source = self.twod.get_data_source()
         if data_source is None:
-            data_source = "tango://{0}/value".format(self.get_full_name())
+            full_name = self.get_full_name()
+            # for Taurus 3/4 compatibility
+            if not full_name.startswith("tango://"):
+                full_name = "tango://{0}".format(full_name)
+            data_source = "{0}/value".format(full_name)
         attr.set_value(data_source)
 
     def Start(self):

@@ -41,6 +41,8 @@ from sardana.macroserver.macro import Macro, macro, Type, ParamRepeat, \
     ViewOption, iMacro, Hookable
 from sardana.macroserver.msexception import StopException
 from sardana.macroserver.scan.scandata import Record
+from sardana.macroserver.msparameter import Optional
+
 ##########################################################################
 #
 # Motion related macros
@@ -649,19 +651,22 @@ class ct(Macro, Hookable):
     hints = {'allowsHooks': ('pre-acq', 'post-acq')}
     param_def = [
         ['integ_time', Type.Float, 1.0, 'Integration time'],
-        ['mnt_grp_name', Type.String, 'MntGrp_not_defined', 'MntGrp to use']
+        ['mnt_grp', Type.MeasurementGroup, Optional, 'MntGrp to use']
     ]
 
-    def prepare(self, integ_time, mnt_grp_name, **opts):
-        if mnt_grp_name == 'MntGrp_not_defined':
-            mnt_grp_name = self.getEnv('ActiveMntGrp')
-        self.mnt_grp = self.getObj(mnt_grp_name,
+    def prepare(self, integ_time, mnt_grp, **opts):
+        if mnt_grp is None:
+            self.mnt_grp_name = self.getEnv('ActiveMntGrp')
+            self.mnt_grp = self.getObj(self.mnt_grp_name,
                                    type_class=Type.MeasurementGroup)
-        self.mnt_grp_name = mnt_grp_name
+        else:
+            self.mnt_grp_name = mnt_grp.name
+            self.mnt_grp = mnt_grp
 
     def run(self, integ_time, mnt_grp_name):
         if self.mnt_grp is None:
-            self.error('ActiveMntGrp is not defined or has invalid value')
+            self.error('The MntGrp {} is not defined or has invalid '
+                       'value'.format(self.mnt_grp_name))
             return
         # integration time has to be accessible from with in the hooks
         # so declare it also instance attribute
@@ -679,18 +684,18 @@ class ct(Macro, Hookable):
         for postAcqHook in self.getHooks('post-acq'):
             postAcqHook()
 
-        names, self.counts = [], []
+        names, counts = [], []
         for ch_info in self.mnt_grp.getChannelsEnabledInfo():
             names.append('%s' % ch_info.label)
             ch_data = data.get(ch_info.full_name)
             if ch_data is None:
-                self.counts.append("<nodata>")
+                counts.append("<nodata>")
             elif ch_info.shape > [1]:
-                self.counts.append(list(ch_data.shape))
+                counts.append(list(ch_data.shape))
             else:
-                self.counts.append(ch_data)
+                counts.append(ch_data)
         self.setData(Record(data))
-        table = Table([self.counts], row_head_str=names, row_head_fmt='  %*s',
+        table = Table([counts], row_head_str=names, row_head_fmt='  %*s',
                       col_sep='  =  ')
         for line in table.genOutput():
             self.output(line)

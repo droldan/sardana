@@ -150,7 +150,8 @@ class MacroButton(TaurusWidget):
         # In case state is not ON, and macro not triggered by the button,
         # disable it
         door_available = True
-        if state not in [PyTango.DevState.ON, PyTango.DevState.ALARM] and not self.ui.button.isChecked():
+        if state not in [PyTango.DevState.ON, PyTango.DevState.ALARM] and \
+                not self.ui.button.isChecked():
             door_available = False
 
         self.ui.button.setEnabled(door_available)
@@ -158,9 +159,12 @@ class MacroButton(TaurusWidget):
 
     def _statusUpdated(self, *args):
         '''slot called on status changes'''
-        # SHOULD SEE THE DOCUMENTATION ABOUT THE ARGS AND ALSO THE STATUS STATE MACHINE
+        # SHOULD SEE THE DOCUMENTATION ABOUT THE ARGS AND ALSO THE STATUS
+        # STATE MACHINE
         # ARGS FORMAT IS (GUESSING WITH PRINT STATEMENTS)
-        # e.g. ((<sardana.taurus.core.tango.sardana.macro.Macro object at 0x7f29300bc210>, [{u'step': 100.0, u'state': u'stop', u'range': [0.0, 100.0], u'id': u'b226f5e8-c807-11e0-8abe-001d0969db5b'}]),)
+        # e.g. ((<sardana.taurus.core.tango.sardana.macro.Macro object at
+        # 0x7f29300bc210>, [{u'step': 100.0, u'state': u'stop', u'range': [
+        # 0.0, 100.0], u'id': u'b226f5e8-c807-11e0-8abe-001d0969db5b'}]),)
         # ( (MacroObj, [status_dict, .?.]), .?.)
 
         # QUESTIONS: THIS MACRO OBJECT HAS ALOS STEP, RANGE, ...
@@ -257,10 +261,12 @@ class MacroButton(TaurusWidget):
 
         :param signals: (seq<tuple>) An ordered sequence of (`obj`, `sig`)
                         tuples , where `obj` is a parameter editor object and
-                        `sig` is a signature for a signal emitted by `obj` which
-                        provides the value of a parameter as its argument.
+                        `sig` is a signature for a signal emitted by `obj`
+                        which provides the value of a parameter as its
+                        argument.
                         Each (`obj`, `sig`) tuple is associated to parameter
-                        corresponding to its position in the `signals` sequence.
+                        corresponding to its position in the `signals`
+                        sequence.
                         '''
 
         for i, (obj, sig) in enumerate(signals):
@@ -302,7 +308,8 @@ class MacroButton(TaurusWidget):
         if self.door is None:
             return
         self.door.PauseMacro()
-        # Since this could be done by error (impatient users clicking more than once)
+        # Since this could be done by error (impatient users clicking more
+        # than once)
         # we provide a warning message that does not make the process too slow
         # It may also be useful and 'ABORT' at TaurusApplication level
         # (macros+motions+acquisitions)
@@ -349,7 +356,8 @@ class MacroButtonAbortDoor(Qt.QPushButton, TaurusBaseWidget):
         '''reimplemented from :class:`TaurusBaseWidget`'''
         return TaurusDevice
 
-    @ProtectTaurusMessageBox(msg='An error occurred trying to abort the macro.')
+    @ProtectTaurusMessageBox(msg='An error occurred trying to abort '
+                                 'the macro.')
     def abort(self):
         '''stops macros'''
         door = self.getModelObj()
@@ -409,8 +417,9 @@ if __name__ == '__main__':
 
             door = taurus.Device(self.door_name)
             try:
-                pars = door.macro_server.getMacroInfoObj(macro_name).parameters
-            except AttributeError as e:
+                macro_info_obj = door.macro_server.getMacroInfoObj(macro_name)
+                pars = macro_info_obj.parameters
+            except AttributeError:
                 print "Macro %s does not exists!" % macro_name
                 return None
 
@@ -473,8 +482,9 @@ if __name__ == '__main__':
             self.show_progress.setChecked(True)
             self.w_bottom.layout().addWidget(self.show_progress, 3, 0)
 
+            abort_icon = ':/actions/media_playback_stop.svg'
             mb_abort = TaurusCommandButton(command='StopMacro',
-                                           icon=':/actions/media_playback_stop.svg')
+                                           icon=abort_icon)
             mb_abort.setModel(door_name)
             self.w_bottom.layout().addWidget(mb_abort, 3, 1)
 
